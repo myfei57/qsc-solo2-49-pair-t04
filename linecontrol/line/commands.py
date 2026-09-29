@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from ..audit.archive import ArchiveRecord
 from ..domain.events import Event
+from ..domain.filter import EventFilter
 from ..domain.kinds import EventKind
 from ..domain.records import TensionSnapshot, WeldRecord
 from ..pickle.dosing import DosePlan
@@ -118,3 +120,29 @@ class CommandOps:
         if kind is None:
             return self.audit.recent(limit)
         return self.audit.query(kind, limit)
+
+    def audit_search(self, event_filter: EventFilter) -> list[Event]:
+        return self.audit.search(event_filter)
+
+    def audit_export(
+        self, event_filter: EventFilter
+    ) -> tuple[bytes, ArchiveRecord]:
+        """Freeze the matching window into a read-only archive."""
+
+        events = self.audit.search(event_filter)
+        record = self.audit.archives.export(events, event_filter)
+        located = self.audit.archives.fetch(record.archive)
+        assert located is not None
+        return located[0], record
+
+    def audit_archives(self) -> list[ArchiveRecord]:
+        return self.audit.archives.list()
+
+    def audit_archive(self, name: str) -> tuple[bytes, ArchiveRecord] | None:
+        return self.audit.archives.fetch(name)
+
+    def audit_verify_archive(self, name: str) -> dict[str, object]:
+        return self.audit.archives.verify(name)
+
+    def audit_verify_ledger(self) -> dict[str, object]:
+        return self.audit.archives.verify_ledger()

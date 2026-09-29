@@ -154,7 +154,7 @@
       <ul id="summary" class="summary"></ul>
     </div>
     <div class="panel">
-      <h2>查询</h2>
+      <h2>快捷查询</h2>
       <form class="inline" data-form="audit-query">
         <label>事件类型
           <select name="kind">
@@ -183,8 +183,49 @@
       </form>
     </div>
     <div class="panel">
-      <h2>最近事件</h2>
+      <h2>组合检索与归档</h2>
+      <form class="inline" data-form="audit-search" id="auditSearchForm">
+        <label>起始时间<input name="start" type="datetime-local" step="1"></label>
+        <label>结束时间<input name="end" type="datetime-local" step="1"></label>
+        <fieldset class="kinds">
+          <legend>事件类别（不选即全部）</legend>
+          <label><input type="checkbox" name="kind" value="coil">coil</label>
+          <label><input type="checkbox" name="kind" value="align">align</label>
+          <label><input type="checkbox" name="kind" value="arc">arc</label>
+          <label><input type="checkbox" name="kind" value="weld">weld</label>
+          <label><input type="checkbox" name="kind" value="tension">tension</label>
+          <label><input type="checkbox" name="kind" value="pump">pump</label>
+          <label><input type="checkbox" name="kind" value="level">level</label>
+          <label><input type="checkbox" name="kind" value="rinse">rinse</label>
+          <label><input type="checkbox" name="kind" value="dry">dry</label>
+          <label><input type="checkbox" name="kind" value="exhaust">exhaust</label>
+          <label><input type="checkbox" name="kind" value="shear">shear</label>
+          <label><input type="checkbox" name="kind" value="track">track</label>
+          <label><input type="checkbox" name="kind" value="latch">latch</label>
+          <label><input type="checkbox" name="kind" value="alarm">alarm</label>
+          <label><input type="checkbox" name="kind" value="recover">recover</label>
+          <label><input type="checkbox" name="kind" value="stop">stop</label>
+          <label><input type="checkbox" name="kind" value="audit">audit</label>
+        </fieldset>
+        <div class="ops">
+          <button type="submit">检索</button>
+          <button type="button" data-op="audit-export">导出为只读归档包</button>
+        </div>
+        <p id="searchMeta" class="meta"></p>
+      </form>
+    </div>
+    <div class="panel">
+      <h2>检索结果</h2>
       <ol id="auditList" class="audit"></ol>
+    </div>
+    <div class="panel">
+      <h2>已导出归档</h2>
+      <div class="ops">
+        <button data-op="audit-refresh-archives">刷新列表</button>
+        <button data-op="audit-verify-ledger">校验台账</button>
+      </div>
+      <p id="ledgerMeta" class="meta"></p>
+      <ol id="archiveList" class="archives"></ol>
     </div>
     <div class="panel">
       <h2>流程步骤</h2>

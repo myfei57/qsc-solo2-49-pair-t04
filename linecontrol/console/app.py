@@ -34,6 +34,12 @@ def _route_table(api: Api) -> tuple[tuple[str, str, Handler], ...]:
         ("/api/events", "GET", api.events),
         ("/api/audit", "GET", api.audit),
         ("/api/audit/summary", "GET", api.audit_summary),
+        ("/api/audit/search", "GET", api.audit_search),
+        ("/api/audit/export", "GET", api.audit_export),
+        ("/api/audit/archives", "GET", api.audit_archives),
+        ("/api/audit/download", "GET", api.audit_download),
+        ("/api/audit/verify", "GET", api.audit_verify),
+        ("/api/audit/ledger", "GET", api.audit_ledger),
         ("/api/weld/confirm", "POST", api.weld_confirm),
         ("/api/weld/splice", "POST", api.weld_splice),
         ("/api/weld/power", "POST", api.weld_power),
@@ -80,13 +86,17 @@ def _error_payload(error: Exception) -> dict[str, object]:
 def _bind(handler: Handler) -> Callable[[], tuple[Response, int]]:
     """Wrap a handler so parameter and domain failures become JSON replies."""
 
-    def view() -> tuple[Response, int]:
+    def view() -> tuple[Response, int] | Response:
         try:
             payload = handler(request)
         except ApiParamError as error:
             return jsonify({"ok": False, "error": str(error)}), 400
         except RuntimeError as error:
             return jsonify(_error_payload(error)), 409
+        except FileNotFoundError as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
+        if isinstance(payload, Response):
+            return payload
         return jsonify(payload), 200
 
     view.__name__ = getattr(handler, "__name__", "handler")

@@ -98,6 +98,101 @@ function renderEvents(events) {
   });
 }
 
+function renderSearchResults(data) {
+  const list = document.getElementById("auditList");
+  list.innerHTML = "";
+  const events = data.events || [];
+  events.forEach(function (event) {
+    const li = document.createElement("li");
+    const when = event.at ? new Date(event.at).toLocaleString() : "";
+    li.textContent = when + " [" + event.kind + "] " + event.source + " :: " + (event.message || "");
+    list.appendChild(li);
+  });
+  const range = events.length
+    ? events[0].at + " 至 " + events[events.length - 1].at
+    : "-";
+  const kinds = (data.filter && data.filter.kinds) || [];
+  setText(
+    "searchMeta",
+    "命中 " + data.count + " 条；时间范围：" + range +
+      "；类别：" + (kinds.length ? kinds.join(", ") : "全部")
+  );
+}
+
+function searchParamsFromForm(form) {
+  const params = new URLSearchParams();
+  if (form.start.value) {
+    params.set("start", new Date(form.start.value).toISOString());
+  }
+  if (form.end.value) {
+    params.set("end", new Date(form.end.value).toISOString());
+  }
+  form.querySelectorAll('input[name="kind"]:checked').forEach(function (box) {
+    params.append("kind", box.value);
+  });
+  return params;
+}
+
+function renderArchives(archives, ledger) {
+  const list = document.getElementById("archiveList");
+  list.innerHTML = "";
+  if (!archives.length) {
+    const li = document.createElement("li");
+    li.className = "clear";
+    li.textContent = "尚无导出归档";
+    list.appendChild(li);
+    return;
+  }
+  archives.forEach(function (entry) {
+    const li = document.createElement("li");
+    li.textContent =
+      entry.archive + "（" + entry.count + " 条，" +
+      (entry.firstAt || "-") + " 起，SHA256 " + entry.zipSha256.slice(0, 12) + "…）";
+    const dl = document.createElement("a");
+    dl.href = "/api/audit/download?name=" + encodeURIComponent(entry.archive);
+    dl.textContent = "下载";
+    const verify = document.createElement("button");
+    verify.type = "button";
+    verify.textContent = "校验";
+    verify.addEventListener("click", async function () {
+      try {
+        const data = await loadJSON(
+          "/api/audit/verify?name=" + encodeURIComponent(entry.archive)
+        );
+        const result = data.verification;
+        window.alert(
+          result.ok
+            ? "校验通过：文件完整、哈希链一致、为只读"
+            : "校验失败：\n" + result.errors.join("\n")
+        );
+      } catch (error) {
+        window.alert(error.message);
+      }
+    });
+    const span = document.createElement("span");
+    span.className = "archive-actions";
+    span.appendChild(dl);
+    span.appendChild(verify);
+    li.appendChild(span);
+    list.appendChild(li);
+  });
+  if (ledger) {
+    setText(
+      "ledgerMeta",
+      ledger.ok
+        ? "台账完好，共 " + ledger.count + " 条导出记录"
+        : "台账异常：" + ledger.errors.join("；")
+    );
+  }
+}
+
+async function refreshArchives() {
+  const data = await loadJSON("/api/audit/archives");
+  renderArchives(data.archives || [], data.ledger);
+}
+
+let lastSearchQuery = "";
+
 function renderSummary(summary) {
   const list = document.getElementById("summary");
   list.innerHTML = "";
@@ -163,6 +258,39 @@ const OP_CALLS = {
     const data = await loadJSON("/api/strip/sag");
     window.alert("垂度 " + fmt(data.sag, 2) + " mm");
   },
+  "audit-export": async () => {
+    if (!lastSearchQuery) {
+      window.alert("请先检索要导出的范围");
+      return;
+    }
+    const response = await fetch("/api/audit/export?" + lastSearchQuery);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ error: "export failed" }));
+      throw new Error(body.error || "export failed");
+    }
+    const name = response.headers.get("X-Archive-Name") || "audit-export.zip";
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    await refreshArchives();
+  },
+  "audit-refresh-archives": refreshArchives,
+  "audit-verify-ledger": async () => {
+    const data = await loadJSON("/api/audit/ledger");
+    const ledger = data.ledger;
+    window.alert(
+      ledger.ok
+        ? "台账校验通过，共 " + ledger.count + " 条记录"
+        : "台账校验失败：\n" + ledger.errors.join("\n")
+    );
+    await refreshArchives();
+  },
 };
 
 const FORM_CALLS = {
@@ -183,6 +311,11 @@ const FORM_CALLS = {
   "exit-weight": (form) => post("/api/exit/weight", readForm(form)),
   "cycle": (form) => post("/api/cycle", readForm(form)),
   "audit-query": (form) => refreshAudit(form.kind.value, form.limit.value),
+  "audit-search": async (form) => {
+    lastSearchQuery = searchParamsFromForm(form).toString();
+    const data = await loadJSON("/api/audit/search?" + lastSearchQuery);
+    renderSearchResults(data);
+  },
 };
 
 function readForm(form) {
@@ -232,6 +365,11 @@ document.querySelectorAll("button.tab").forEach(function (button) {
     const target = document.getElementById("tab-" + button.dataset.tab);
     if (target) {
       target.classList.remove("hidden");
+    }
+    if (button.dataset.tab === "audit") {
+      refreshArchives().catch(function (error) {
+        console.error(error);
+      });
     }
   });
 });

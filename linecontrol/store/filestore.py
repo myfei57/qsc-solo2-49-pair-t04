@@ -39,6 +39,31 @@ class FileStore:
             tmp.write_bytes(payload)
             os.replace(tmp, path)
 
+    def save_once(self, key: str, payload: bytes) -> Path:
+        """Write ``key`` exactly once, then mark the file read-only.
+
+        A pre-existing key (regardless of content) is refused so exported
+        evidence cannot be silently replaced. Returns the stored path.
+        """
+
+        path = self._path(key)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with self._lock:
+            if path.exists():
+                raise FileExistsError(f"snapshot already exists: {key!r}")
+            tmp.write_bytes(payload)
+            os.replace(tmp, path)
+            mode = path.stat().st_mode & 0o777
+            path.chmod(mode & ~0o222)
+        return path
+
+    def is_readonly(self, key: str) -> bool:
+        path = self._path(key)
+        try:
+            return not bool(path.stat().st_mode & 0o222)
+        except FileNotFoundError:
+            return False
+
     def load(self, key: str) -> bytes | None:
         path = self._path(key)
         try:
@@ -98,3 +123,86 @@ class FileStore:
         if not target.is_dir():
             return ()
         return tuple(sorted(entry.name for entry in target.iterdir() if entry.is_file()))
+
+    # -- immutable evidence archive ------------------------------------
+
+    #: Subdirectory holding exported investigation archives.
+    ARCHIVE_DIR = "archives"
+
+    #: Append-only export ledger living beside the archive files.
+    LEDGER_NAME = "ledger.json"
+
+    @staticmethod
+    def _check_name(name: str) -> None:
+        if not name or "/" in name or "\\" in name or name in {".", ".."}:
+            raise ValueError(f"invalid archive name: {name!r}")
+
+    def _archive_dir(self) -> Path:
+        sub = self._dir / self.ARCHIVE_DIR
+        sub.mkdir(parents=True, exist_ok=True)
+        return sub
+
+    def archive_path(self, name: str) -> Path:
+        self._check_name(name)
+        return self._dir / self.ARCHIVE_DIR / name
+
+    def archive_save(self, name: str, payload: bytes) -> Path:
+        """Create an archive file once and mark it read-only."""
+
+        self._check_name(name)
+        with self._lock:
+            directory = self._archive_dir()
+            path = directory / name
+            if path.exists():
+                raise FileExistsError(f"archive already exists: {name!r}")
+            tmp = directory / (name + ".tmp")
+            tmp.write_bytes(payload)
+            os.replace(tmp, path)
+            mode = path.stat().st_mode & 0o777
+            path.chmod(mode & ~0o222)
+        return path
+
+    def archive_load(self, name: str) -> bytes | None:
+        try:
+            return self.archive_path(name).read_bytes()
+        except FileNotFoundError:
+            return None
+
+    def archive_list(self) -> list[str]:
+        directory = self._dir / self.ARCHIVE_DIR
+        with self._lock:
+            if not directory.is_dir():
+                return []
+            return sorted(
+                entry.name
+                for entry in directory.iterdir()
+                if entry.is_file() and entry.name != self.LEDGER_NAME
+            )
+
+    def is_readonly_archive(self, name: str) -> bool:
+        path = self.archive_path(name)
+        try:
+            return not bool(path.stat().st_mode & 0o222)
+        except FileNotFoundError:
+            return False
+
+    def ledger_replace(self, payload: bytes) -> Path:
+        """Rewrite the append-only ledger, leaving it read-only on disk."""
+
+        with self._lock:
+            directory = self._archive_dir()
+            path = directory / self.LEDGER_NAME
+            if path.exists():
+                path.chmod((path.stat().st_mode & 0o777) | 0o200)
+            tmp = directory / (self.LEDGER_NAME + ".tmp")
+            tmp.write_bytes(payload)
+            os.replace(tmp, path)
+            path.chmod((path.stat().st_mode & 0o777) & ~0o222)
+        return path
+
+    def ledger_load(self) -> bytes | None:
+        path = self._dir / self.ARCHIVE_DIR / self.LEDGER_NAME
+        try:
+            return path.read_bytes()
+        except FileNotFoundError:
+            return None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..domain.events import Event
+from ..domain.filter import EventFilter
 from ..domain.kinds import EventKind
 from .state import DEFAULT_QUERY_LIMIT
 
@@ -21,6 +22,11 @@ class QueryOps:
                 if len(found) >= cap:
                     break
         return found
+
+    def search(self, event_filter: EventFilter) -> list[Event]:
+        """All events matching the filter, oldest first."""
+
+        return [event for event in self.state.events if event_filter.matches(event)]
 
     def recent(self, limit: int) -> list[Event]:
         if limit <= 0:

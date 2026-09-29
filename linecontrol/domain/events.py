@@ -15,6 +15,23 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def parse_time(raw: str) -> datetime:
+    """Parse an ISO 8601 stamp; naive input is interpreted as UTC."""
+
+    text = raw.strip()
+    if not text:
+        raise ValueError("empty timestamp")
+    if text[-1:] in {"Z", "z"}:
+        text = text[:-1] + "+00:00"
+    try:
+        stamp = datetime.fromisoformat(text)
+    except ValueError as error:
+        raise ValueError(f"invalid timestamp: {raw!r}") from error
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return stamp.astimezone(timezone.utc)
+
+
 @dataclass(frozen=True, slots=True)
 class Event:
     """A single process event carried on the bus."""

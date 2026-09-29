@@ -5,6 +5,7 @@ from __future__ import annotations
 from ..bus import EventBus
 from ..store.filestore import FileStore
 from .alarm import AlarmOps
+from .archive import ArchiveStore
 from .handle import HandleOps
 from .log import LogOps
 from .query import QueryOps
@@ -19,6 +20,7 @@ class Logger(LogOps, AlarmOps, QueryOps, SummaryOps, HandleOps):
         self._store = store
         self._bus = bus
         self._state = AuditState()
+        self._archives = ArchiveStore(store)
 
     @property
     def store(self) -> FileStore:
@@ -31,6 +33,10 @@ class Logger(LogOps, AlarmOps, QueryOps, SummaryOps, HandleOps):
     @property
     def state(self) -> AuditState:
         return self._state
+
+    @property
+    def archives(self) -> ArchiveStore:
+        return self._archives
 
     def snapshot(self) -> dict[str, object]:
         return {

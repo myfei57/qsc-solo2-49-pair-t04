@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
-from flask import Request
+import json
+
+from flask import Request, Response
 
 from ..domain.events import Event
+from ..domain.filter import build_filter
 from ..domain.kinds import EventKind
 from ..line.machine import Line
 from ..line.workflow import CycleInput
 from ..store.snapshot import snapshot_type_names
+
+
+def json_dumps(payload: dict[str, object]) -> str:
+    return json.dumps(payload, ensure_ascii=False)
 
 #: Number of recent process events kept for the live event endpoint.
 STREAM_LIMIT = 300
@@ -47,6 +54,27 @@ def int_param(request: Request, name: str, default: int) -> int:
         return int(raw)
     except ValueError as error:
         raise ApiParamError(name, raw) from error
+
+
+def filter_param(request: Request):
+    """Build the combined time-window/category filter for a request."""
+
+    kind_values = request.args.getlist("kind") + request.args.getlist("kinds")
+    try:
+        return build_filter(
+            request.args.get("start", ""),
+            request.args.get("end", ""),
+            kind_values,
+        )
+    except ValueError as error:
+        raise ApiParamError("filter", str(error)) from error
+
+
+def archive_name_param(request: Request) -> str:
+    name = request.args.get("name", "")
+    if not name:
+        raise ApiParamError("name", name)
+    return name
 
 
 class Api:
@@ -150,6 +178,77 @@ class Api:
 
     def audit_summary(self, request: Request) -> dict[str, object]:
         return {"ok": True, "summary": self.line.audit.summary()}
+
+    def audit_search(self, request: Request) -> dict[str, object]:
+        event_filter = filter_param(request)
+        events = self.line.audit_search(event_filter)
+        return {
+            "ok": True,
+            "filter": event_filter.to_dict(),
+            "count": len(events),
+            "events": [event.to_dict() for event in events],
+        }
+
+    def audit_export(self, request: Request) -> Response:
+        event_filter = filter_param(request)
+        try:
+            payload, record = self.line.audit_export(event_filter)
+        except (FileExistsError, ValueError) as error:
+            return Response(
+                response=json_dumps({"ok": False, "error": str(error)}),
+                status=409,
+                mimetype="application/json",
+            )
+        return Response(
+            payload,
+            status=201,
+            mimetype="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="{record.archive}"',
+                "X-Archive-Name": record.archive,
+                "X-Archive-Digest": record.zip_sha256,
+            },
+        )
+
+    def audit_archives(self, request: Request) -> dict[str, object]:
+        entries = self.line.audit_archives()
+        return {
+            "ok": True,
+            "ledger": self.line.audit_verify_ledger(),
+            "archives": [entry.to_dict() for entry in entries],
+        }
+
+    def audit_download(self, request: Request) -> Response:
+        name = archive_name_param(request)
+        located = self.line.audit_archive(name)
+        if located is None:
+            return Response(
+                response=json_dumps({"ok": False, "error": "archive not found"}),
+                status=404,
+                mimetype="application/json",
+            )
+        payload, _record = located
+        return Response(
+            payload,
+            status=200,
+            mimetype="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    def audit_verify(self, request: Request) -> Response | dict[str, object]:
+        name = archive_name_param(request)
+        try:
+            result = self.line.audit_verify_archive(name)
+        except FileNotFoundError:
+            return Response(
+                response=json_dumps({"ok": False, "error": "archive not found"}),
+                status=404,
+                mimetype="application/json",
+            )
+        return {"ok": True, "verification": result}
+
+    def audit_ledger(self, request: Request) -> dict[str, object]:
+        return {"ok": True, "ledger": self.line.audit_verify_ledger()}
 
     def weld_seams(self, request: Request) -> dict[str, object]:
         limit = int_param(request, "limit", DEFAULT_SEAM_LIMIT)
