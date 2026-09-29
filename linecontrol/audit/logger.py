@@ -5,14 +5,15 @@ from __future__ import annotations
 from ..bus import EventBus
 from ..store.filestore import FileStore
 from .alarm import AlarmOps
+from .export import ExportOps
 from .handle import HandleOps
 from .log import LogOps
-from .query import QueryOps
+from .query import EventSearch, QueryOps
 from .state import AuditState
 from .summary import SummaryOps
 
 
-class Logger(LogOps, AlarmOps, QueryOps, SummaryOps, HandleOps):
+class Logger(LogOps, AlarmOps, QueryOps, SummaryOps, HandleOps, ExportOps):
     """Stores every process event and the current alarm register."""
 
     def __init__(self, store: FileStore, bus: EventBus) -> None:

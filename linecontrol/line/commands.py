@@ -8,6 +8,7 @@ from ..domain.records import TensionSnapshot, WeldRecord
 from ..pickle.dosing import DosePlan
 from ..pump.errors import PumpError, PumpErrorCode
 from ..tension.state import RampPlan
+from ..audit.query import EventSearch
 
 #: Alarm identifier raised for a welder overcurrent trip.
 WELD_OVER_CURRENT = "weld-overcurrent"
@@ -118,3 +119,15 @@ class CommandOps:
         if kind is None:
             return self.audit.recent(limit)
         return self.audit.query(kind, limit)
+
+    def audit_search(self, search: EventSearch) -> list[Event]:
+        return self.audit.search(search)
+
+    def audit_export(self, search: EventSearch) -> tuple[bytes, dict[str, object]]:
+        return self.audit.export_search(search)
+
+    def audit_verify(self, blob: bytes) -> dict[str, object]:
+        return self.audit.verify_archive_blob(blob)
+
+    def audit_exports(self) -> list[dict[str, object]]:
+        return self.audit.export_ledger()

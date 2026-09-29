@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from flask import Request
 
+from ..audit import archive
+from ..audit.query import EventSearch, parse_time
 from ..domain.events import Event
 from ..domain.kinds import EventKind
 from ..line.machine import Line
@@ -47,6 +49,41 @@ def int_param(request: Request, name: str, default: int) -> int:
         return int(raw)
     except ValueError as error:
         raise ApiParamError(name, raw) from error
+
+
+def _time_param(request: Request, name: str):
+    raw = request.args.get(name, "")
+    if not raw.strip():
+        return None
+    try:
+        return parse_time(raw)
+    except ValueError as error:
+        raise ApiParamError(name, raw) from error
+
+
+def search_from_request(request: Request) -> EventSearch:
+    """Build the combined kind/time filter from query parameters."""
+
+    try:
+        kinds = archive.kinds_for_search(request.args.getlist("kind"))
+    except ValueError as error:
+        raw = ",".join(request.args.getlist("kind"))
+        raise ApiParamError("kind", raw) from error
+    start = _time_param(request, "start")
+    end = _time_param(request, "end")
+    limit = int_param(request, "limit", DEFAULT_AUDIT_LIMIT)
+    search = EventSearch(kinds=kinds, start=start, end=end, limit=limit)
+    if start is not None and end is not None and start > end:
+        raise ApiParamError("start", request.args.get("start", ""))
+    return search
+
+
+def _filter_view(search: EventSearch) -> dict[str, object]:
+    return {
+        "kinds": sorted(k.value for k in search.kinds) if search.kinds is not None else [],
+        "start": search.start.isoformat() if search.start else None,
+        "end": search.end.isoformat() if search.end else None,
+    }
 
 
 class Api:
@@ -140,13 +177,32 @@ class Api:
         return {"ok": True, "events": self.stream_view()}
 
     def audit(self, request: Request) -> dict[str, object]:
-        limit = int_param(request, "limit", DEFAULT_AUDIT_LIMIT)
-        raw_kind = request.args.get("kind", "")
-        if raw_kind:
-            events = self.line.audit_query(EventKind(raw_kind), limit)
-        else:
-            events = self.line.audit_query(None, limit)
-        return {"ok": True, "events": [event.to_dict() for event in events]}
+        search = search_from_request(request)
+        events = self.line.audit_search(search)
+        return {"ok": True, "events": [event.to_dict() for event in events],
+                "count": len(events), "filter": _filter_view(search)}
+
+    def audit_export(self, request: Request) -> tuple[bytes, int, dict[str, str]]:
+        search = search_from_request(request)
+        blob, receipt = self.line.audit_export(search)
+        filename = f"audit-export-{receipt['archiveId'][:16]}.zip"
+        headers = {
+            "Content-Type": "application/zip",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Archive-Id": receipt["archiveId"],
+            "X-Archive-Count": str(receipt["eventCount"]),
+        }
+        return blob, 200, headers
+
+    def audit_verify(self, request: Request) -> dict[str, object]:
+        upload = request.files.get("archive")
+        if upload is None:
+            raise ApiParamError("archive", "<missing multipart file>")
+        result = self.line.audit_verify(upload.read())
+        return {"ok": True, **result}
+
+    def audit_exports(self, request: Request) -> dict[str, object]:
+        return {"ok": True, "exports": self.line.audit_exports()}
 
     def audit_summary(self, request: Request) -> dict[str, object]:
         return {"ok": True, "summary": self.line.audit.summary()}

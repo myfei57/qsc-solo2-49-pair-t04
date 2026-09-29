@@ -154,37 +154,53 @@
       <ul id="summary" class="summary"></ul>
     </div>
     <div class="panel">
-      <h2>查询</h2>
-      <form class="inline" data-form="audit-query">
-        <label>事件类型
-          <select name="kind">
-            <option value="">全部</option>
-            <option value="coil">coil</option>
-            <option value="align">align</option>
-            <option value="arc">arc</option>
-            <option value="weld">weld</option>
-            <option value="tension">tension</option>
-            <option value="pump">pump</option>
-            <option value="level">level</option>
-            <option value="rinse">rinse</option>
-            <option value="dry">dry</option>
-            <option value="exhaust">exhaust</option>
-            <option value="shear">shear</option>
-            <option value="track">track</option>
-            <option value="latch">latch</option>
-            <option value="alarm">alarm</option>
-            <option value="recover">recover</option>
-            <option value="stop">stop</option>
-            <option value="audit">audit</option>
-          </select>
-        </label>
-        <label>条数<input name="limit" type="number" step="1" value="30"></label>
-        <button type="submit">查询</button>
+      <h2>组合查询</h2>
+      <form id="auditFilter">
+        <fieldset class="kinds" id="auditKinds">
+          <legend>事件类别（不勾选即全部）</legend>
+          <label class="check"><input type="checkbox" data-kind="coil">coil</label>
+          <label class="check"><input type="checkbox" data-kind="align">align</label>
+          <label class="check"><input type="checkbox" data-kind="arc">arc</label>
+          <label class="check"><input type="checkbox" data-kind="weld">weld</label>
+          <label class="check"><input type="checkbox" data-kind="tension">tension</label>
+          <label class="check"><input type="checkbox" data-kind="pump">pump</label>
+          <label class="check"><input type="checkbox" data-kind="level">level</label>
+          <label class="check"><input type="checkbox" data-kind="rinse">rinse</label>
+          <label class="check"><input type="checkbox" data-kind="dry">dry</label>
+          <label class="check"><input type="checkbox" data-kind="exhaust">exhaust</label>
+          <label class="check"><input type="checkbox" data-kind="shear">shear</label>
+          <label class="check"><input type="checkbox" data-kind="track">track</label>
+          <label class="check"><input type="checkbox" data-kind="latch">latch</label>
+          <label class="check"><input type="checkbox" data-kind="alarm">alarm</label>
+          <label class="check"><input type="checkbox" data-kind="recover">recover</label>
+          <label class="check"><input type="checkbox" data-kind="stop">stop</label>
+          <label class="check"><input type="checkbox" data-kind="audit">audit</label>
+        </fieldset>
+        <div class="inline">
+          <label>开始时间<input name="start" type="datetime-local" step="1"></label>
+          <label>结束时间<input name="end" type="datetime-local" step="1"></label>
+          <label>条数上限<input name="limit" type="number" step="1" value="50"></label>
+          <button type="submit" id="auditSearchBtn">查询</button>
+          <button type="button" id="auditExportBtn" class="secondary">导出归档包</button>
+        </div>
+        <p id="auditMeta" class="meta"></p>
       </form>
     </div>
     <div class="panel">
-      <h2>最近事件</h2>
+      <h2>查询结果</h2>
       <ol id="auditList" class="audit"></ol>
+    </div>
+    <div class="panel">
+      <h2>归档校验</h2>
+      <form class="inline" id="archiveVerify">
+        <label>归档包<input type="file" name="archive" accept=".zip" required></label>
+        <button type="submit">校验</button>
+      </form>
+      <pre id="verifyResult" class="verify"></pre>
+    </div>
+    <div class="panel">
+      <h2>导出台账</h2>
+      <ul id="exportLedger" class="summary"></ul>
     </div>
     <div class="panel">
       <h2>流程步骤</h2>

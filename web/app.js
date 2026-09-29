@@ -90,9 +90,15 @@ function renderState(state) {
 function renderEvents(events) {
   const list = document.getElementById("auditList");
   list.innerHTML = "";
-  events.slice(-40).reverse().forEach(function (event) {
+  if (!events.length) {
     const li = document.createElement("li");
-    const when = event.at ? new Date(event.at).toLocaleTimeString() : "";
+    li.textContent = "没有符合条件的记录";
+    list.appendChild(li);
+    return;
+  }
+  events.slice().reverse().forEach(function (event) {
+    const li = document.createElement("li");
+    const when = event.at ? new Date(event.at).toLocaleString() : "";
     li.textContent = when + " [" + event.kind + "] " + (event.message || "");
     list.appendChild(li);
   });
@@ -104,6 +110,29 @@ function renderSummary(summary) {
   Object.keys(summary).sort().forEach(function (kind) {
     const li = document.createElement("li");
     li.textContent = kind + " x " + summary[kind];
+    list.appendChild(li);
+  });
+}
+
+function renderLedger(exports) {
+  const list = document.getElementById("exportLedger");
+  list.innerHTML = "";
+  if (!exports.length) {
+    const li = document.createElement("li");
+    li.className = "clear";
+    li.textContent = "暂无导出记录";
+    list.appendChild(li);
+    return;
+  }
+  exports.slice().reverse().forEach(function (receipt) {
+    const li = document.createElement("li");
+    const criteria = receipt.criteria || {};
+    const kinds = criteria.kinds && criteria.kinds.length ? criteria.kinds.join(",") : "全部类别";
+    const span = [criteria.start || "起点", criteria.end || "至今"].join(" ~ ");
+    li.textContent = receipt.exportedAt.replace("T", " ").slice(0, 19)
+      + " ｜ " + kinds + " ｜ " + span
+      + " ｜ " + receipt.eventCount + " 条 ｜ " + receipt.sha256.slice(0, 16);
+    li.title = receipt.sha256;
     list.appendChild(li);
   });
 }
@@ -132,22 +161,55 @@ async function refresh() {
     renderSequence(data.state ? data.state.sequence : null);
     const summary = await loadJSON("/api/audit/summary");
     renderSummary(summary.summary || {});
+    const ledger = await loadJSON("/api/audit/exports");
+    renderLedger(ledger.exports || []);
   } catch (error) {
     console.error(error);
   }
 }
 
-async function refreshAudit(kind, limit) {
-  const params = {};
-  if (kind) {
-    params.kind = kind;
+function auditParams(form) {
+  const params = new URLSearchParams();
+  form.querySelectorAll("input[data-kind]:checked").forEach(function (box) {
+    params.append("kind", box.dataset.kind);
+  });
+  if (form.start.value) {
+    params.set("start", new Date(form.start.value).toISOString());
   }
-  if (limit) {
-    params.limit = limit;
+  if (form.end.value) {
+    params.set("end", new Date(form.end.value).toISOString());
   }
-  const query = new URLSearchParams(params).toString();
-  const data = await loadJSON("/api/audit" + (query ? "?" + query : ""));
+  const limit = parseInt(form.limit.value, 10);
+  if (Number.isFinite(limit) && limit > 0) {
+    params.set("limit", limit);
+  }
+  return params;
+}
+
+async function runAuditSearch(form) {
+  const data = await loadJSON("/api/audit?" + auditParams(form).toString());
   renderEvents(data.events || []);
+  const meta = document.getElementById("auditMeta");
+  meta.textContent = "命中 " + data.count + " 条（按时间正序返回，页面倒序展示）";
+}
+
+async function exportArchive(form) {
+  const response = await fetch("/api/audit/export?" + auditParams(form).toString());
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "导出失败");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = match ? match[1] : "audit-export.zip";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 const OP_CALLS = {
@@ -182,7 +244,6 @@ const FORM_CALLS = {
   "shear-offset": (form) => post("/api/exit/shear-offset", readForm(form)),
   "exit-weight": (form) => post("/api/exit/weight", readForm(form)),
   "cycle": (form) => post("/api/cycle", readForm(form)),
-  "audit-query": (form) => refreshAudit(form.kind.value, form.limit.value),
 };
 
 function readForm(form) {
@@ -192,6 +253,64 @@ function readForm(form) {
   });
   return data;
 }
+
+const auditForm = document.getElementById("auditFilter");
+
+auditForm.addEventListener("submit", async function (event) {
+  event.preventDefault();
+  const meta = document.getElementById("auditMeta");
+  meta.textContent = "查询中…";
+  try {
+    await runAuditSearch(auditForm);
+  } catch (error) {
+    meta.textContent = "";
+    window.alert(error.message);
+  }
+});
+
+document.getElementById("auditExportBtn").addEventListener("click", async function () {
+  const meta = document.getElementById("auditMeta");
+  meta.textContent = "正在生成签名归档包…";
+  try {
+    await exportArchive(auditForm);
+    meta.textContent = "归档包已导出（内含 SHA-256 清单与 HMAC 签名，记录不可篡改）";
+    await refresh();
+  } catch (error) {
+    meta.textContent = "";
+    window.alert(error.message);
+  }
+});
+
+document.getElementById("archiveVerify").addEventListener("submit", async function (event) {
+  event.preventDefault();
+  const output = document.getElementById("verifyResult");
+  const fileInput = this.archive;
+  if (!fileInput.files.length) {
+    return;
+  }
+  output.textContent = "校验中…";
+  const body = new FormData();
+  body.append("archive", fileInput.files[0]);
+  try {
+    const response = await fetch("/api/audit/verify", { method: "POST", body: body });
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      output.textContent = "校验失败：" + (data.error || "归档包已被改动或密钥不符");
+      return;
+    }
+    const manifest = data.manifest;
+    output.textContent =
+      "校验通过 ✓\n" +
+      "生成时间: " + manifest.createdAt + "\n" +
+      "记录条数: " + manifest.eventCount + "\n" +
+      "查询类别: " + ((manifest.criteria.kinds || ["全部"]).join(", ")) + "\n" +
+      "时间范围: " + (manifest.criteria.start || "起点") + " ~ " + (manifest.criteria.end || "至今") + "\n" +
+      "events 哈希: " + manifest.eventsSha256 + "\n" +
+      "校验时间: " + data.verifiedAt;
+  } catch (error) {
+    output.textContent = "校验失败：" + error.message;
+  }
+});
 
 document.querySelectorAll("button[data-op]").forEach(function (button) {
   button.addEventListener("click", async function () {
@@ -238,3 +357,6 @@ document.querySelectorAll("button.tab").forEach(function (button) {
 
 refresh();
 setInterval(refresh, 3000);
+runAuditSearch(auditForm).catch(function (error) {
+  console.error(error);
+});

@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from .backup import BackupSummary
+from .keys import KEY_ARCHIVE_SECRET
 
 
 class FileStore:
@@ -81,7 +82,7 @@ class FileStore:
             copied: list[str] = []
             total = 0
             for entry in sorted(self._dir.iterdir()):
-                if not entry.is_file():
+                if not entry.is_file() or entry.name == KEY_ARCHIVE_SECRET:
                     continue
                 data = entry.read_bytes()
                 (target / entry.name).write_bytes(data)

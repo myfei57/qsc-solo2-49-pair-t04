@@ -7,10 +7,11 @@ from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+from ..audit.archive import ArchiveError
 from ..line.machine import Line
 from .api import Api, ApiParamError
 
-Handler = Callable[[object], dict[str, object]]
+Handler = Callable[[object], dict[str, object] | tuple[bytes, int, dict[str, str]]]
 
 #: Content types served from the static web root.
 STATIC_TYPES = {
@@ -34,6 +35,9 @@ def _route_table(api: Api) -> tuple[tuple[str, str, Handler], ...]:
         ("/api/events", "GET", api.events),
         ("/api/audit", "GET", api.audit),
         ("/api/audit/summary", "GET", api.audit_summary),
+        ("/api/audit/export", "GET", api.audit_export),
+        ("/api/audit/verify", "POST", api.audit_verify),
+        ("/api/audit/exports", "GET", api.audit_exports),
         ("/api/weld/confirm", "POST", api.weld_confirm),
         ("/api/weld/splice", "POST", api.weld_splice),
         ("/api/weld/power", "POST", api.weld_power),
@@ -85,8 +89,13 @@ def _bind(handler: Handler) -> Callable[[], tuple[Response, int]]:
             payload = handler(request)
         except ApiParamError as error:
             return jsonify({"ok": False, "error": str(error)}), 400
+        except ArchiveError as error:
+            return jsonify({"ok": False, "error": str(error)}), 422
         except RuntimeError as error:
             return jsonify(_error_payload(error)), 409
+        if isinstance(payload, tuple):
+            body, status, headers = payload
+            return Response(body, status=status, headers=headers), status
         return jsonify(payload), 200
 
     view.__name__ = getattr(handler, "__name__", "handler")
